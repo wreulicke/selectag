@@ -15,7 +15,8 @@ import (
 )
 
 var (
-	prefix string
+	prefix        string
+	defaultBranch string
 )
 
 var rootCmd = &cobra.Command{
@@ -37,6 +38,15 @@ func main() {
 }
 
 func runSelectTag(cmd *cobra.Command, args []string) error {
+	// detect default branch
+	if defaultBranch == "" {
+		out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "origin/HEAD").Output()
+		if err != nil {
+			defaultBranch = "main"
+		}
+		defaultBranch = strings.TrimSpace(strings.TrimPrefix(string(out), "origin/"))
+	}
+
 	// Collect tag prefixes from git tags
 	var prefixes []string
 	var err error
@@ -145,7 +155,7 @@ func runSelectTag(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Tag:     %s\n", newTag)
 	fmt.Println("─────────────────────────────")
 	fmt.Printf("\nTo create this tag, run:\n\n")
-	fmt.Printf("git tag %s -a -m \"%s\" origin/main\n", newTag, releaseTitle)
+	fmt.Printf("git tag %s -a -m \"%s\" origin/%s\n", newTag, releaseTitle, defaultBranch)
 	fmt.Printf("git push origin %s\n", newTag)
 	fmt.Printf("gh release create %s --draft --generate-notes --notes-start-tag %s\n", newTag, oldTag)
 
@@ -180,7 +190,7 @@ func getCurrentVersion(prefix string) (string, error) {
 		prefix = prefix + "/v"
 	}
 
-	cmd := exec.Command("git", "describe", "--tags", fmt.Sprintf("--match=%s**", prefix), "--abbrev=0", "origin/main")
+	cmd := exec.Command("git", "describe", "--tags", fmt.Sprintf("--match=%s**", prefix), "--abbrev=0", fmt.Sprintf("origin/%s", defaultBranch))
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get current version from git tags: %w", err)

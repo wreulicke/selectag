@@ -21,17 +21,6 @@ var (
 )
 
 func NewRootCommand() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "selectag",
-		Short: "Select tag prefix for monorepo module releases",
-		Long:  `A CLI tool to help you select the appropriate tag prefix when releasing separated modules in a monorepo.`,
-		RunE:  runSelectTag,
-	}
-	cmd.Flags().StringVarP(&prefix, "prefix", "p", "", "Add additional tag prefix options (can be used multiple times)")
-	return cmd
-}
-
-func runSelectTag(cmd *cobra.Command, args []string) error {
 	// detect default branch
 	if defaultBranch == "" {
 		out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "origin/HEAD").Output()
@@ -40,6 +29,20 @@ func runSelectTag(cmd *cobra.Command, args []string) error {
 		}
 		defaultBranch = strings.TrimSpace(strings.TrimPrefix(string(out), "origin/"))
 	}
+
+	cmd := &cobra.Command{
+		Use:   "selectag",
+		Short: "Select tag prefix for monorepo module releases",
+		Long:  `A CLI tool to help you select the appropriate tag prefix when releasing separated modules in a monorepo.`,
+		RunE:  runSelectTag,
+	}
+	cmd.Flags().StringVarP(&prefix, "prefix", "p", "", "Add additional tag prefix options (can be used multiple times)")
+
+	cmd.AddCommand(NewVerifyCommand())
+	return cmd
+}
+
+func runSelectTag(cmd *cobra.Command, args []string) error {
 
 	// Collect tag prefixes from git tags
 	var prefixes []string
@@ -82,11 +85,11 @@ func runSelectTag(cmd *cobra.Command, args []string) error {
 	generateNewVersionOptions := func() []huh.Option[string] {
 		currentVersion, err := getCurrentVersion(selectedPrefix)
 		if err != nil {
-			panic(err)
+			panic(fmt.Sprintf("failed to get current version: %v", err))
 		}
 		v, err := version.NewSemver(currentVersion)
 		if err != nil {
-			panic(err)
+			panic(fmt.Sprintf("failed to parse current version: %v", err))
 		}
 		segments := v.Segments()
 
@@ -138,7 +141,10 @@ func runSelectTag(cmd *cobra.Command, args []string) error {
 	}
 
 	// Generate the full tag
-	oldVersion, _ := getCurrentVersion(selectedPrefix)
+	oldVersion, err := getCurrentVersion(selectedPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to get current version: %w", err)
+	}
 	newTag := getGitTagFromVersion(selectedPrefix, newVersion)
 	oldTag := getGitTagFromVersion(selectedPrefix, oldVersion)
 
@@ -292,7 +298,7 @@ func continued(title string) bool {
 		),
 	).Run()
 	if err != nil {
-		panic(err)
+		panic(fmt.Sprintf("failed to get confirmation: %v", err))
 	}
 	return c
 }

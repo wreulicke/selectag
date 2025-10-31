@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"maps"
 	"os/exec"
 	"regexp"
@@ -18,15 +20,15 @@ var (
 	defaultBranch string
 )
 
-var RootCmd = &cobra.Command{
-	Use:   "selectag",
-	Short: "Select tag prefix for monorepo module releases",
-	Long:  `A CLI tool to help you select the appropriate tag prefix when releasing separated modules in a monorepo.`,
-	RunE:  runSelectTag,
-}
-
-func init() {
-	RootCmd.Flags().StringVarP(&prefix, "prefix", "p", "", "Add additional tag prefix options (can be used multiple times)")
+func NewRootCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "selectag",
+		Short: "Select tag prefix for monorepo module releases",
+		Long:  `A CLI tool to help you select the appropriate tag prefix when releasing separated modules in a monorepo.`,
+		RunE:  runSelectTag,
+	}
+	cmd.Flags().StringVarP(&prefix, "prefix", "p", "", "Add additional tag prefix options (can be used multiple times)")
+	return cmd
 }
 
 func runSelectTag(cmd *cobra.Command, args []string) error {
@@ -140,21 +142,31 @@ func runSelectTag(cmd *cobra.Command, args []string) error {
 	newTag := getGitTagFromVersion(selectedPrefix, newVersion)
 	oldTag := getGitTagFromVersion(selectedPrefix, oldVersion)
 
-	// Output the generated tag
-	fmt.Println("\n✓ Tag generated successfully!")
-	fmt.Println("─────────────────────────────")
-	if selectedPrefix == "" {
-		fmt.Printf("Module:  (root)\n")
-	} else {
-		fmt.Printf("Module:  %s\n", strings.TrimSuffix(selectedPrefix, "/"))
+	err = execCmd(cmd.OutOrStdout(), cmd.OutOrStderr(), "git", "tag", newTag, "-a", "-m", releaseTitle, "origin/"+defaultBranch)
+	if err != nil {
+		return fmt.Errorf("failed to create git tag: %w", err)
 	}
-	fmt.Printf("Version: %s\n", newVersion)
-	fmt.Printf("Tag:     %s\n", newTag)
-	fmt.Println("─────────────────────────────")
-	fmt.Printf("\nTo create this tag, run:\n\n")
-	fmt.Printf("git tag %s -a -m \"%s\" origin/%s\n", newTag, releaseTitle, defaultBranch)
-	fmt.Printf("git push origin %s\n", newTag)
-	fmt.Printf("gh release create %s --draft --generate-notes --notes-start-tag %s\n", newTag, oldTag)
+	log.Println("Created git tag:", newTag)
+
+	if !continued("Do you want to push the tag and create a GitHub release now?") {
+		return nil
+	}
+
+	err = execCmd(cmd.OutOrStdout(), cmd.OutOrStderr(), "git", "push", "origin", newTag)
+	if err != nil {
+		return fmt.Errorf("failed to push git tag: %w", err)
+	}
+	log.Println("Pushed git tag to origin:", newTag)
+
+	if !continued("Do you want to create a GitHub release now?") {
+		return nil
+	}
+
+	err = execCmd(cmd.OutOrStdout(), cmd.OutOrStderr(), "gh", "release", "create", newTag, "--draft", "--generate-notes", "--notes-start-tag", oldTag, "--fail-on-no-commits")
+	if err != nil {
+		return fmt.Errorf("failed to create GitHub release: %w", err)
+	}
+	log.Println("Created GitHub release for tag:", newTag)
 
 	return nil
 }
@@ -260,4 +272,27 @@ func collectTagPrefixesFromGit() ([]string, error) {
 	}
 
 	return slices.Collect(maps.Keys(prefixMap)), nil
+}
+
+func execCmd(stdout io.Writer, stderr io.Writer, name string, args ...string) error {
+	log.Println("Executing command:", name, strings.Join(args, " "))
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return cmd.Run()
+}
+
+func continued(title string) bool {
+	var c bool
+	err := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title(title).
+				Value(&c),
+		),
+	).Run()
+	if err != nil {
+		panic(err)
+	}
+	return c
 }

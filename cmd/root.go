@@ -96,6 +96,11 @@ func runSelectTag(cmd *cobra.Command, args []string) error {
 			huh.NewOption(fmt.Sprintf("minor - %s", minor), minor),
 			huh.NewOption(fmt.Sprintf("major - %s", major), major),
 		}
+		if len(v.Prerelease()) > 0 {
+			// also suggest removing prerelease
+			cleanVersion := fmt.Sprintf("%d.%d.%d", segments[0], segments[1], segments[2])
+			suggestions = append([]huh.Option[string]{huh.NewOption(fmt.Sprintf("remove prerelease - %s", cleanVersion), cleanVersion)}, suggestions...)
+		}
 		return suggestions
 	}
 
@@ -182,12 +187,29 @@ func getCurrentVersion(prefix string) (string, error) {
 		prefix = prefix + "/v"
 	}
 
-	cmd := exec.Command("git", "describe", "--tags", fmt.Sprintf("--match=%s**", prefix), "--abbrev=0", fmt.Sprintf("origin/%s", defaultBranch))
+	cmd := exec.Command("git", "tag", "--list", fmt.Sprintf("%s**", prefix), "--sort=-v:refname")
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to get current version from git tags: %w", err)
+		return "", fmt.Errorf("failed to list git tags: %w", err)
 	}
-	return strings.TrimPrefix(strings.TrimSpace(string(output)), prefix), nil
+
+	tags := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(tags) == 0 {
+		return "", fmt.Errorf("no tags found with prefix %s", prefix)
+	}
+
+	slices.SortFunc(tags, func(i, j string) int {
+		vi, err1 := version.NewSemver(strings.TrimPrefix(i, prefix))
+		vj, err2 := version.NewSemver(strings.TrimPrefix(j, prefix))
+		if err1 != nil || err2 != nil {
+			return 0
+		}
+		if vi.GreaterThan(vj) {
+			return -1
+		}
+		return 1
+	})
+	return strings.TrimPrefix(strings.TrimSpace(tags[0]), prefix), nil
 }
 
 func getGitTagFromVersion(prefix, version string) string {

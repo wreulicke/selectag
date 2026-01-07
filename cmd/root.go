@@ -8,12 +8,15 @@ import (
 	"os/exec"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/huh"
 	version "github.com/hashicorp/go-version"
 	"github.com/spf13/cobra"
 )
+
+var endwithNumberPattern = regexp.MustCompile(`(\d+)$`)
 
 var (
 	prefix        string
@@ -101,10 +104,24 @@ func runSelectTag(cmd *cobra.Command, args []string) error {
 			huh.NewOption(fmt.Sprintf("minor - %s", minor), minor),
 			huh.NewOption(fmt.Sprintf("major - %s", major), major),
 		}
-		if len(v.Prerelease()) > 0 {
+		hasPrelease := len(v.Prerelease()) > 0
+		if hasPrelease {
 			// also suggest removing prerelease
 			cleanVersion := fmt.Sprintf("%d.%d.%d", segments[0], segments[1], segments[2])
 			suggestions = append([]huh.Option[string]{huh.NewOption(fmt.Sprintf("remove prerelease - %s", cleanVersion), cleanVersion)}, suggestions...)
+			if matches := endwithNumberPattern.FindStringSubmatch(v.Prerelease()); matches != nil {
+				numStr := matches[1]
+				num, err := strconv.Atoi(numStr)
+				if err != nil {
+					panic(fmt.Errorf("failed to parse prerelease number: %v", err))
+				}
+				newPrelease := fmt.Sprintf("%d.%d.%d-%s%s", segments[0], segments[1], segments[2], strings.TrimSuffix(v.Prerelease(), numStr), fmt.Sprintf("%d", num+1))
+				suggestions = append([]huh.Option[string]{huh.NewOption(fmt.Sprintf("bump prerelease - %s", newPrelease), newPrelease)}, suggestions...)
+			} else {
+				num := "1"
+				prelease := fmt.Sprintf("%d.%d.%d-%s%s", segments[0], segments[1], segments[2], v.Prerelease(), num)
+				suggestions = append([]huh.Option[string]{huh.NewOption(fmt.Sprintf("bump prerelease - %s", prelease), prelease)}, suggestions...)
+			}
 		}
 		return suggestions
 	}

@@ -10,6 +10,7 @@ https://github.com/user-attachments/assets/7e524def-44da-423c-8d31-d884b8991a83
 ## Prerequisites
 
 - git
+- GitHub CLI (gh)
 
 ## Installation
 
